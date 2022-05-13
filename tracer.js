@@ -4,33 +4,28 @@ const {diag, DiagConsoleLogger, DiagLogLevel, trace} = require('@opentelemetry/a
 const {registerInstrumentations} = require("@opentelemetry/instrumentation");
 const {HttpInstrumentation} = require("@opentelemetry/instrumentation-http");
 const {ExpressInstrumentation} = require("@opentelemetry/instrumentation-express");
-const {PrometheusExporter} = require("@opentelemetry/exporter-prometheus");
 const {JaegerExporter} = require("@opentelemetry/exporter-jaeger");
-const {MeterProvider, ConsoleMetricExporter} = require("@opentelemetry/sdk-metrics-base");
 const {SemanticResourceAttributes} = require('@opentelemetry/semantic-conventions')
 const {Resource} = require("@opentelemetry/resources");
 const {serviceSyncDetector} = require('opentelemetry-resource-detector-service')
 const {api} = require("@opentelemetry/sdk-node");
 // Debug logger
-// diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
+diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
 
 const init = (serviceName, metricsPort) => {
 
     // Define metrics
-    const metricsExporter = new PrometheusExporter({port: metricsPort},
-        () => console.log(`prometheus scrape endpoint http://localhost:${metricsPort}${PrometheusExporter.DEFAULT_OPTIONS.endpoint}`))
-    const meter = new MeterProvider({
-        exporter: metricsExporter,
-        interval: 1000,
-    }).getMeter(serviceName)
-
-    // Define traces
-    const traceExporter = new JaegerExporter({endpoint: 'http://localhost:14268/api/traces'})
+    // const metricsExporter = new PrometheusExporter({port: metricsPort},
+    //     () => console.log(`prometheus scrape endpoint http://localhost:${metricsPort}${PrometheusExporter.DEFAULT_OPTIONS.endpoint}`))
+    // const meter = new MeterProvider({
+    //     exporter: metricsExporter,
+    //     interval: 1000,
+    // }).getMeter(serviceName)
 
     // Autodetects service info
     const serviceResource = serviceSyncDetector.detect()
     const customResources = new Resource({
-        // [SemanticResourceAttributes.SERVICE_NAME]: serviceName,
+        [SemanticResourceAttributes.SERVICE_NAME]: serviceName,
         'my-resource': 1
     })
 
@@ -39,25 +34,28 @@ const init = (serviceName, metricsPort) => {
         // sampler: ,definitely possible and needed in high traffic applications
     })
 
-    // provider.addSpanProcessor(new BatchSpanProcessor(traceExporter))
+    // Define traces
+    provider.addSpanProcessor(new BatchSpanProcessor(new JaegerExporter(
+        {endpoint: 'http://localhost:14268/api/traces'}
+    )))
     provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()))
-    provider.addSpanProcessor(new BatchSpanProcessor(traceExporter, {
-        scheduledDelayMillis: 7000 // Only send metrics every 7 seconds
-    }))
+    // provider.addSpanProcessor(new BatchSpanProcessor(traceExporter, {
+    //     scheduledDelayMillis: 7000 // Only send metrics every 7 seconds
+    // }))
     provider.register()
 
     registerInstrumentations({
         instrumentations: [
             new ExpressInstrumentation(),
             new HttpInstrumentation(),
-          new KnexExporter()
         ]
     })
 
-    const tracer = provider.getTracer(serviceName)
+    // const tracer = provider.getTracer(serviceName)
 
     return {
-        meter, tracer: {
+        // TODO: make this work
+        tracer: {
             track: (eventObject = {}) => {
                 const activeSpan = api.trace.getSpan(api.context.active())
                 activeSpan.setAttributes(eventObject)
